@@ -1,3 +1,6 @@
+#!/usr/bin/python3.6
+#this library contain multiple loss functions
+
 #torch libaries
 from torchvision import transforms,datasets
 import torch, torchvision, torch.optim as optim, torch.nn as nn, torch.nn.functional as F
@@ -8,6 +11,7 @@ import numpy as np, sys, os, cv2, random, math, time
 #own libaries
 import net_handler as nh, data_manipulater as dm
 
+#dice loss funtion
 def dice(pred, target):
     smooth = 1.
     pred = torch.clamp(pred,0,1)
@@ -16,6 +20,7 @@ def dice(pred, target):
     intersection = (target * pred)
     return 1-(2*intersection.sum()+smooth)/(pred.sum()+target.sum()+smooth)
 
+#cross entropy loss function
 def cross_entropy(pred,target):
     pred = torch.clamp(pred,0.00001,0.99999)
     target = target
@@ -23,6 +28,7 @@ def cross_entropy(pred,target):
     ce2 = (1-target)*torch.log2(1-pred)
     return -(ce1+ce2).sum()/pred.reshape(-1).size(0)
 
+#mean squared error loos function
 def mse(pred,target):
     mean_squared_error = ((pred-target)**2).sum()/pred.reshape(-1).size(0)
     return mean_squared_error

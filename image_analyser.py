@@ -1,3 +1,6 @@
+#!/usr/bin/python3.6
+#library which contains function to analyze an image 
+
 #torch libaries
 from torchvision import transforms,datasets
 import torch, torchvision, torch.optim as optim, torch.nn as nn, torch.nn.functional as F
@@ -8,6 +11,7 @@ import numpy as np, sys, os, cv2, random, math, time
 #own libaries
 import data_manipulater as dm, net_handler as nh
 
+#create a padded bounding box around a contour in an image
 def padded_bounding_box(img,cnt,padding=30):
     rect = cv2.boundingRect(cnt)
     boundray_first = max(rect[1]-padding,0)
@@ -16,6 +20,7 @@ def padded_bounding_box(img,cnt,padding=30):
     boundray_fourth = min(rect[0]+rect[2]+padding,img.shape[1])
     return [boundray_first,boundray_second,boundray_thrid,boundray_fourth]
 
+#calcualte the centroids of contours
 def center_of_contours(cnts):
     centers = list()
     for cnt in cnts:
@@ -25,6 +30,7 @@ def center_of_contours(cnts):
         centers.append((x,y))
     return centers
 
+#filter out contour of a specific size
 def filtered_contours(binary,threshold = 200000):
     cnts,_ = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     filtered = list()
@@ -37,6 +43,7 @@ def filtered_contours(binary,threshold = 200000):
             filtered.append(cnt)
     return filtered
 
+#remove contour of a specific size from an image
 def remove_filtered_contours(binary,threshold = 1000000):
     cnts = filtered_contours(binary,threshold)
     mask = np.zeros(binary.shape,dtype=np.uint8)
@@ -44,6 +51,7 @@ def remove_filtered_contours(binary,threshold = 1000000):
     binary = cv2.bitwise_and(binary,binary,mask=mask)
     return binary
 
+#return a cropped out fragment of an image (shape rectrangle)
 def get_fragment(img,cnt,padding=30,mask_it=False):
     bb = padded_bounding_box(img,cnt,padding)
     if mask_it:
@@ -53,6 +61,7 @@ def get_fragment(img,cnt,padding=30,mask_it=False):
     fragment_img = img[bb[0]:bb[1],bb[2]:bb[3]]
     return fragment_img, bb
 
+#get the biggest contour of an binary image
 def get_max_contour(binary):
     cnts,_ = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     cnt_max = []
@@ -67,6 +76,7 @@ def get_max_contour(binary):
             cnt_max_area = np.sum(tmp)
     return cnt_max
 
+#create a kernel of size "k"
 def get_kernel(k):
     return np.ones((k,k),dtype=np.uint8)
 

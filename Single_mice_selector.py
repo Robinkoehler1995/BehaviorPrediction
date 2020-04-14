@@ -1,4 +1,10 @@
 #!/usr/bin/python3.6
+#this script generates list of sequences of single mice
+#these sequences are needed to to train a ANN which is able to separated overlapping mice
+#by using a video of two mice it is easy to determine if mice are separated
+#just by checking of two shapes are predicted by the ANN "whole" and "fragment"
+#if two shape are predicted the mice are separated and they are added to the output
+
 #torch libaries
 from torchvision import transforms,datasets
 import torch, torchvision, torch.optim as optim, torch.nn as nn, torch.nn.functional as F
@@ -9,6 +15,7 @@ import numpy as np, sys, os, cv2, random, math, time
 #own libaries
 import net_handler as nh, data_manipulater as dm, image_analyser as ia
 
+#Check if cuda is available
 print('Is cuda available:\t'+ str(torch.cuda.is_available()))
 print('Available devices:\t'+str(torch.cuda.device_count()))
 print('Device 0 name:\t'+ torch.cuda.get_device_name(0))
@@ -20,9 +27,23 @@ if device.type == 'cuda':
     print('\tAllocated:', round(torch.cuda.memory_allocated(0)/1024**3,1), 'GB')
     print('\tCached:   ', round(torch.cuda.memory_cached(0)/1024**3,1), 'GB')
 
+#used to proper dislpay an image with opencv
+def lucidDreaming(wait=True):
+    while 1:
+        k = cv2.waitKey(30) & 0xff
+        if k == 27:
+            print('keyboard interuption: its getting dark')
+            return True
+        if k == 32:
+            return False
+        if not wait:
+            return False
+
+#calculates the distance between two points
 def get_distance(p1,p2):
     return round(math.sqrt((p1[0]-p2[0])**2+(p1[1]-p2[1])**2),2)
 
+#reutrn the contour of the biggest object in a binary image
 def get_max_contour(binary):
     cnts,_ = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     cnt_max = []
@@ -37,6 +58,7 @@ def get_max_contour(binary):
             cnt_max_area = np.sum(tmp)
     return cnt_max
 
+#return a stack of images "img_stacked" containing only a specific region "cnt" of another stack of images "imgs"
 def stack_different_imgs(imgs,cnt):
     stack = list()
     for img in imgs:
@@ -45,23 +67,19 @@ def stack_different_imgs(imgs,cnt):
     img_stacked = np.dstack(stack)
     return img_stacked, bb
 
-def process_seperation(sep,mask):
-    k = 5
-    kernel = np.ones((k,k),dtype=np.uint8)
-    mask = cv2.erode(mask,kernel)
-    modifier = np.less(sep[:,:,1],sep[:,:,0])
-    sep[:,:,0] = sep[:,:,0]*modifier.astype(np.uint8)
-    sep[:,:,1] = sep[:,:,1]*(1-modifier).astype(np.uint8)
-    
-    sep = cv2.bitwise_and(sep,sep,mask=mask)
-    sep = dm.binary_it(sep,30)
-    return sep
-
+#combines the negative and positive prediction of two ANN
 def combine_pos_neg(pos,neg,k=100):
     pos = dm.binary_it(pos,100,mask=True)
     neg = dm.binary_it(255-neg,100,mask=True)
     return cv2.bitwise_and(pos,neg)
 
+#remove elements of a given lists to always ensure the same length of the list
+def keep_list_at_size(lists,size):
+    for l in lists:
+        while(len(l) > size):
+            del(l[0])
+
+#load trained ANN        
 kernel_size_conv = 9
 net_whole = nh.create_net_3conv(kernel_size_conv,device=device)
 model_path = 'whole'
@@ -82,121 +100,85 @@ model_path = 'fragment_negative'
 net_fragment_negative.load_state_dict(torch.load(model_path))
 net_fragment_negative.eval()
 
-#kernel_size_conv = 9
-#net_rcdnn = nh.create_rcdnn_3conv_hidden(kernel_size_conv,1,1,4096,start_dim=1,end_dim=2)
-#hidden = net_rcdnn.init_hidden()
-#model_path = 'rcdnn'
-#net_rcdnn.load_state_dict(torch.load(model_path))
-#net_rcdnn.eval()
-#dim_rcdnn = (128,128)
-
-kernel_size_conv = 15
-net_class = nh.create_net_classifier(kernel_size_conv,classes=6,start_dim=3,device=device)
-model_path = 'class'
-net_class.load_state_dict(torch.load(model_path))
-net_class.eval()
-dim_class = (128,128)
-
-print('initilazied nets')
+#set up video path
+base = 'test.avi'
+path_vid = base
 
 #init video reader
-cap = cv2.VideoCapture('test.avi')
+cap = cv2.VideoCapture(path_vid)
 
-#init storage varialbes
+#init variables
 centers_last = ((0,0),(100,100))
-behavior_list_1 = list()
-behavior_list_2 = list()
-last = list()
-
-#start analyzing
-print('predicting behavior')
+list_size = 100
+X_pre_seperator = list()
+y_pre_seperator = list()
+index_pre_seperator = list()
+sequences = [[[],[]],[[],[]]]
+new_sequence = 0
+#until the loop breaks
 while 1:
+    #read current frame
     ret,img = cap.read()
+    #if current frame does not exist break
     if not ret:
         break
-    #dm.lucid_img(img,'img')
+    
+    #make a first prediction for the whole current frame
     img_whole = nh.evaluate_plus_resizing(net_whole,img,dim_whole,device=device,normalize=nh.pytorch_normalize_3) 
         
-        
-        
+    #find contour of the shape of the first prediction
     cnts = ia.filtered_contours(img_whole)
+    #make a second more accurate prediciton for each object of the first prediction
+    #and combine them into a new image "img_whole_plus_fragment"
     img_whole_plus_fragment = np.zeros(img_whole.shape,dtype=np.uint8)
     for cnt in cnts:
         img_tmp, bb = ia.get_fragment(img,cnt)
         pos = nh.evaluate_plus_resizing(net_fragment,img_tmp,dim_fragment,device=device,normalize=nh.pytorch_normalize_3)
         neg = nh.evaluate_plus_resizing(net_fragment_negative,img_tmp,dim_fragment,device=device,normalize=nh.pytorch_normalize_3)
         img_fragment = combine_pos_neg(pos,neg)
+        img_fragment = cv2.erode(img_fragment,ia.get_kernel(8))
         img_fragment = ia.remove_filtered_contours(img_fragment)
-        
-        
         img_whole_plus_fragment[bb[0]:bb[1],bb[2]:bb[3]] += img_fragment
-     
+    
+    #find all the object from the second prediction
     cnts = ia.filtered_contours(img_whole_plus_fragment)
     
-    sm = img.copy()
-    if len(cnts) == 1:
-        class_this,_ = ia.get_fragment(img,cnts[0])
-        class_this_mask,_ = ia.get_fragment(img,cnts[0],mask_it=True)
-        
-        class_this,_ = ia.get_fragment(img,cnts[0],mask_it=True)
-        out_class = nh.classify(net_class,class_this,dim_class,device=device,round_after=2)
-        out_class = list(out_class)
-        
-        class_max = np.argmax(out_class)
-        if class_max == 3 or class_max == 2:
-            behavior_list_1.append([out_class[-1]]+[0,0]+out_class[0:3])
-            behavior_list_2.append([out_class[-1]]+[0,0]+out_class[0:3])
-        else:
-            behavior_list_1.append([out_class[-1]]+[0,0]+out_class[0:3])
-            behavior_list_2.append([0,0,0,0,0,0])
+    #if mice are seperated
     if len(cnts) == 2:
-        
-        
+        #determine which mice is which
         centers = ia.center_of_contours(cnts)
         if get_distance(centers[0],centers_last[0]) + get_distance(centers[1],centers_last[1]) >= get_distance(centers[0],centers_last[1]) + get_distance(centers[1],centers_last[0]):
             cnts = [cnts[1],cnts[0]]
             centers = [centers[1],centers[0]]
-        
-        centers_last = centers 
-        test = False
-        for cnt in cnts:
-                
-                
-            class_this,_ = ia.get_fragment(img,cnt,mask_it=True)
-            out_class = nh.classify(net_class,class_this,dim_class,device=device,round_after=2)
+        centers_last = centers
+        #append each mice to sequences
+        for index,cnt in zip([0,1],cnts):
+            single_pred = np.zeros(img_whole_plus_fragment.shape, np.uint8)
+            single_pred = cv2.drawContours(single_pred, [cnt], -1, 255, -1)
+            single_mice = cv2.bitwise_and(img,img,mask=single_pred)
+            sequences[index][0].append(single_mice)
+            sequences[index][1].append(single_pred)
 
+        #display sequence
+        dm.lucid_img(img,'frame')
+        dm.lucid_img(img_whole_plus_fragment,'binary')
+    #if mice are overlapping
+    else:
+        #if the sequences of seperated mice are longer than 100 frames add them to the output "X_pre_seperator" and "X_pre_seperator" plus the start and end position of these sequences to "index_pre_seperator" 
+        if len(sequences[0][0]) > 99:
+            for sequence in sequences:
+                X, y = sequence
+                start = len(X_pre_seperator)
+                X_pre_seperator += X
+                y_pre_seperator += y
+                end = len(X_pre_seperator)
+                index_pre_seperator.append(['filler',start,end])
+                sequences = [[[],[]],[[],[]]]
 
-            spacing_amount = 20
-            class_max = np.argmax(out_class)
-            out_class = list(out_class)
-            if len(behavior_list_1) <= len(behavior_list_2):
-                behavior_list_1.append(out_class)
-            else:
-                behavior_list_2.append(out_class)
-        #if test:    
-        #    dm.lucid_img(sm,'a',1)
-        
-        
-    #if lucidDreaming(True):
-    #    break
-    if len(behavior_list_1) == 3000:
-        break
-        
+#save list of seperated mice
+print('size:',np.array(X_pre_seperator).shape)
+np.save('X_pre_sep.npy', np.array(X_pre_seperator))
+np.save('y_pre_sep.npy', np.array(y_pre_seperator))
+np.save('index_pre_seperator.npy',np.array(index_pre_seperator))
+#close all open windows of opencv
 cv2.destroyAllWindows()
-
-
-writer = open('behavior_list_1','w+')
-for i in behavior_list_1:
-    for j in i:
-        writer.write(str(j)+'\t')
-    writer.write('\n')
-writer.flush()
-writer.close()
-
-writer = open('behavior_list_2','w+')
-for i in behavior_list_2:
-    for j in i:
-        writer.write(str(j)+'\t')
-    writer.write('\n')
-writer.flush()
-writer.close()

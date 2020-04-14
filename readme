@@ -1,0 +1,67 @@
+In this file I am going to explain how to use the following scripts to create a tool which is able
+to annotated the behavior of mice automatically.
+The scripts are:
+Ahri.py
+Annotate_Behavior.py
+Generate_Background.py
+Generate_data_from_Background.py
+RCDNN_training_data_generator.py
+Single_mice_selector.py
+Train_CCNN.py
+Train_CDNN.py
+Train_RCDNN.py
+
+Libraries with self defined functions:
+data_manipulator.py
+image_analyser.py
+loss_function.py
+net_handler.py
+
+1.) Set up enviroment
+
+-Install Ubuntu 18.04 on your local machine. This can be done by downloading an image from https://ubuntu.com/download/desktop
+-Install anaconda. Open a terminal and enter:
+sudo apt-get update
+sudo apt-get ugrade
+sudo apt-get install curl
+curl –O https://repo.anaconda.com/archive/Anaconda3-2019.07-Linux-x86_64.sh
+bash Anaconda3-2019.07-Linux-x86_64.sh
+source ~/.bashrc
+conda info <- if everything worked properly this command should show some meta data of anaconda
+-create a new eviorment with anaconda and installing packages. Open a terminal and enter:
+conda create ––name name_your_environment python=3
+conda activate name_your_environment
+conda install -c conda-forge matplotlib <- Now install all packages that are needed
+conda install -c conda-forge opencv
+conda install -c anaconda numpy
+conda install -c conda-forge tqdm
+conda install pytorch torchvision cudatoolkit=10.1 -c pytorch <- the cuda toolkit option might need adjustment depending on your gpu
+
+2.) Using the scripts to create a functional tool
+--All script contain a header where its function is detailed. All scripts contain comment explaining what the code does--
+
+-Select a stationary recording of mice and insert its path into the script Generate_Background.py into the "path_vid" variable
+ -Select the areas where mice are until a full background model was generated
+ -The scripts will created to images of the background model. Both images need to be stoared in the same folder as the video and the names must stay unchanged.
+-Insert the path of all videos you want to analyze into the script Generate_data_from_Background.py into the variable "bases" as follows:
+ -["path\to\video1.avi","path\to\video2.avi","path\to\video3.avi" ...]
+ -This will create two training sets named "fragment_X/y.npy" and "whole_X/y.npy"
+-Use the script Train_CDNN.py to train and save two convolutional deconvolutional neural networks with the training sets fragment and whole
+ -Training on this data requires only 10-20 epochs
+ -In addition a second CDNN is created from the training set fragment. This is done by uncommenting the line #y = dm.inverse_labels(y) to create a CDNN for
+  the inversed/negative data
+ -The names of the three CDNN are: whole, fragment, fragment_negative
+-Use the script Single_mice_selector.py to generate sequences of mice when they are separated.
+ -This will create three files "X_pre_sep.npy", "y_pre_sep.npy", "index_pre_seperator.npy"
+-Use the script RCDNN_training_data_generator.py to generate a training set for a recurrent convolutional deconvolutional neural network. The data from the
+ previous step is used by this step to create the new set of training data "X/y_sep_rcdnn.npy"
+-A RCDNN can be trained with Train_RCDNN.py and the resulting net is named rcdnn
+-The script Annotate_behavior.py Uses the four ANN (whole, fragment, fragment_negative, rcdnn) to generate a training set of annotated behavioral manifestations
+-The script Train_CCNN.py uses the training data produced in the previous step to train a classifying convolutional neural network. It is named class
+-The script Ahir.py uses all the previously defined ANN to generate annotated behavioral manifestation data from a given video
+
+
+
+
+
+

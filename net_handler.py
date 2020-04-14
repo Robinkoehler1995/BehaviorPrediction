@@ -1,3 +1,4 @@
+#!/usr/bin/python3.6
 #torch libaries
 from torchvision import transforms,datasets
 import torch, torchvision, torch.optim as optim, torch.nn as nn, torch.nn.functional as F

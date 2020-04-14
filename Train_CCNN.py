@@ -1,5 +1,5 @@
 #!/usr/bin/python3.6
-#this script is used to train a convolutional deconvolutional artificial neural network
+#this script is used to train a classifing artificial neural network
 
 #torch libaries
 from torchvision import transforms,datasets
@@ -17,18 +17,13 @@ def evaluate(net,test_X):
         net_out = net(test_X.to(device))
     return net_out
     
-#loss function combination of dice and mse
-def custom_loss(pred,target):
-    pred = torch.clamp(pred,0,1)
-    return (lf.dice(pred,target)+lf.mse(pred,target)) / 2
-    
 #train the ANN 
 def train(net):
     #init variables
     loss_train_over_time = list()
     loss_test_over_time = list()
-    BATCH_SIZE = 50
-    epochs = 3
+    BATCH_SIZE = 80
+    epochs = 10
     
     #for each epoch
     for epoch in range(epochs):
@@ -60,7 +55,6 @@ def train(net):
         time.sleep(0.5)
     return loss_train_over_time, loss_test_over_time
 
-
 #init cuda
 print('Is cuda available:\t'+ str(torch.cuda.is_available()))
 print('Available devices:\t'+str(torch.cuda.device_count()))
@@ -74,47 +68,41 @@ if device.type == 'cuda':
     print('\tCached:   ', round(torch.cuda.memory_cached(0)/1024**3,1), 'GB')
 
 #load training data
-X = np.load('whole_X.npy', allow_pickle = True)
-y = np.load('whole_y.npy', allow_pickle = True)
-
-#X = np.load('fragment_X.npy', allow_pickle = True)
-#y = np.load('fragment_y.npy', allow_pickle = True)
-
-#create negative training data
-#y = dm.inverse_labels(y)
+X = np.load('X_class.npy',allow_pickle = True)
+y = np.load('y_class.npy',allow_pickle = True)
 
 #format training data
+X = np.vstack((X,np.flip(X,0)))
+y = np.vstack((y,y))
 X_t = dm.opencv_to_pytorch(X)
-y_t = dm.opencv_to_pytorch(y)
+y_t = y
 
 #create test set
 test_size = 50
 X_test = torch.Tensor(X_t[:test_size])
 y_test = torch.Tensor(y_t[:test_size])
 
-#shuffle training set
+#shuffle traning set
 np.random.seed(1)
 np.random.shuffle(X_t)
 np.random.seed(1)
 np.random.shuffle(y_t)
 
-#convert training data into tensors
 X_train = torch.Tensor(X_t[test_size:])
 y_train = torch.Tensor(y_t[test_size:])
 
 print('X:',X_train.shape,y_train.shape)
 print('y:',X_test.shape,y_test.shape)
 
-#create CDNN
-kernel_size_conv = 9
-#net = nh.create_net_5conv(kernel_size_conv,device=device,arcitecture = [3,16,32,64,128,256,1])
-net = nh.create_net_3conv(kernel_size_conv,device=device)
+#create CCNN
+kernel_size_conv = 15
+net = nh.create_net_classifier(kernel_size_conv,classes=6,start_dim=3,device=device)
 print(net)
-print('done')
+print('net intilazied')
 
 #initlize optimizer
 optimizer = optim.Adam(net.parameters(), lr=0.001)
-loss_function = custom_loss
+loss_function = lf.mse
 
 #train
 loss_train_over_time, loss_test_over_time = train(net)
@@ -130,5 +118,5 @@ leg = ax.legend()
 fig.savefig('loss_over_time_behavior.png')
 
 #save net
-model_path = 'whole'
+model_path = 'class'
 torch.save(net.state_dict(), model_path)
